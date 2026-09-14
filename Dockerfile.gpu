@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+# CUDA variant: docker compose --profile gpu up -d --build
+# Requires nvidia-container-toolkit on the host. Build takes ~15-25 min (compiles CUDA kernels).
+FROM nvidia/cuda:12.6.3-devel-ubuntu24.04
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python3.12 python3.12-dev python3.12-venv build-essential cmake curl ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+COPY requirements.txt .
+ARG CUDA_ARCHITECTURES=86
+RUN CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES}" \
+    pip install --no-cache-dir -r requirements.txt
+
+ARG MODEL_URL=https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
+RUN mkdir -p /app/models \
+    && curl -fsSL --retry 3 -o /app/models/qwen2.5-1.5b-instruct-q4_k_m.gguf "$MODEL_URL"
+
+ENV AOE_N_GPU_LAYERS=999
+
+COPY app ./app
+
+RUN useradd --create-home appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=5 \
+  CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

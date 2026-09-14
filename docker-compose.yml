@@ -1,0 +1,26 @@
+services:
+  aoe:
+    build: .
+    image: aoe-api:latest
+    ports:
+      - "8000:8000"
+    environment:
+      AOE_THREADS: "8"
+      AOE_LLM_TIMEOUT: "20"
+      AOE_DEFAULT_TZ: "UTC"
+    restart: unless-stopped
+
+  aoe-gpu:
+    profiles: ["gpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: aoe-api:gpu
+    ports:
+      - "8000:8000"
+    gpus: all
+    environment:
+      AOE_N_GPU_LAYERS: "999"
+      AOE_THREADS: "4"
+      AOE_LLM_TIMEOUT: "20"
+    restart: unless-stopped

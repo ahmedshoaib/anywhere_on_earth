@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AoE Deadline — local time + countdown</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%B3%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0b0e14;--panel:#141a24;--panel2:#1b2330;--text:#e6ebf2;--muted:#8b98ab;
+  --line:#28324a;--ok:#4ade80;--info:#38bdf8;--warn:#fbbf24;--bad:#f87171;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 64px}
+header{padding:28px 0 10px}
+h1{font-size:26px;margin:0;letter-spacing:.3px}
+h1 .aoe{color:var(--info)}
+.sub{color:var(--muted);margin:6px 0 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:16px}
+textarea{width:100%;min-height:120px;resize:vertical;background:var(--bg);color:var(--text);
+  border:1px solid var(--line);border-radius:8px;padding:12px;font:14px/1.5 var(--mono)}
+textarea:focus{outline:1px solid var(--info)}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+select,button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;
+  padding:9px 14px;font:inherit;cursor:pointer}
+button.primary{background:var(--info);border-color:var(--info);color:#04121f;font-weight:600}
+button.primary:disabled{opacity:.55;cursor:wait}
+button.ghost{background:transparent}
+button:hover{filter:brightness(1.15)}
+.fast{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:13px;cursor:pointer}
+.fast input{accent-color:var(--info)}
+#status{color:var(--muted);margin-top:10px;min-height:20px}
+#banner{display:none;margin-top:10px;padding:8px 12px;border-radius:8px;
+  background:#3a2e10;border:1px solid #6b531a;color:var(--warn)}
+.dl{border-left:3px solid var(--info)}
+.dl.expired{border-left-color:var(--muted);opacity:.75}
+.meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.lab{font-weight:600}
+.kind{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+.b{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.b.aoe{color:var(--info);border-color:var(--info)}
+.b.warn{color:var(--warn);border-color:#6b531a}
+.raw{color:var(--muted);font-family:var(--mono);font-size:13px;margin:8px 0 4px;word-break:break-word}
+.local{font-size:19px;font-weight:600;margin-top:6px}
+.utc{color:var(--muted);font-size:12.5px;font-family:var(--mono);margin-top:2px}
+.count{font:600 30px/1.2 var(--mono);margin-top:12px;color:var(--ok);letter-spacing:1px}
+.count.warn{color:var(--warn)}
+.count.bad{color:var(--bad)}
+.count.expired{color:var(--muted);font-size:20px}
+.count small{font-size:14px;font-weight:400;color:var(--muted)}
+.note{color:var(--warn);font-size:12.5px;margin-top:8px}
+.alts{margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
+.alts .title{color:var(--muted);font-size:12px;margin-bottom:4px}
+.alt{font-size:13px;color:var(--muted);margin:2px 0}
+.alt b{color:var(--text);font-weight:500}
+.nowline{color:var(--muted);font-size:12.5px;font-family:var(--mono);margin-top:14px}
+footer{color:var(--muted);font-size:12px;margin-top:28px;text-align:center}
+footer a{color:var(--muted)}
+@media(max-width:520px){.count{font-size:24px}.local{font-size:16px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1><span class="aoe">AoE</span> Deadline</h1>
+  <p class="sub">Paste any deadline text — see it in <b>your</b> timezone with a live countdown.<br>
+  AoE (Anywhere on Earth) = UTC−12:00 — a deadline passes only when the date has ended everywhere on Earth.</p>
+</header>
+
+<section class="card">
+  <textarea id="text" placeholder="e.g.  Full paper deadline: March 3, 2027, 11:59 PM AoE" spellcheck="false"></textarea>
+  <div class="row">
+    <select id="tz" aria-label="your timezone"></select>
+    <button id="go" class="primary">Extract deadlines</button>
+    <button id="example" class="ghost">Example</button>
+    <button id="share" class="ghost" disabled>Copy link</button>
+    <label class="fast"><input type="checkbox" id="fast"> fast (skip LLM)</label>
+  </div>
+  <div id="status"></div>
+  <div id="banner"></div>
+</section>
+
+<section id="results"></section>
+<footer><a href="/docs">API docs</a> · <a href="/api/health">health</a> · everything runs locally</footer>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const browserTz=(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||"UTC"}catch(e){return "UTC"}})();
+const TZ_LIST=["UTC","Asia/Karachi","Asia/Kolkata","Asia/Tokyo","Asia/Seoul","Asia/Singapore","Asia/Shanghai","Australia/Sydney","Europe/London","Europe/Berlin","Europe/Paris","Europe/Zurich","America/New_York","America/Chicago","America/Los_Angeles","America/Sao_Paulo"];
+const EXAMPLE=`IEEE EXAMPLECONF 2027 — Important dates
+
+- Abstract deadline: January 15, 2027, 11:59 PM AoE
+- Full paper deadline: March 3, 2027, 23:59 AoE
+- Notification of acceptance: April 20, 2027, 5:00 PM CEST
+- Camera-ready version due: May 10, 2027
+- Workshop proposal deadline: 2027-06-01T23:59:59-12:00
+
+Submissions close tomorrow at 5pm.`;
+
+let skewMs=0,timers=[],nowEl=null;
+
+(function initTz(){
+  const sel=$("#tz");
+  const opt=document.createElement("option");
+  opt.value="auto";opt.textContent=`Auto — ${browserTz}`;sel.appendChild(opt);
+  for(const z of TZ_LIST){if(z===browserTz)continue;
+    const o=document.createElement("option");o.value=z;o.textContent=z;sel.appendChild(o);}
+})();
+
+function setStatus(t){$("#status").textContent=t||""}
+
+function fmt(ms){
+  const s=Math.floor(ms/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60),sec=s%60;
+  const p=n=>String(n).padStart(2,"0");
+  return d>0?`${d}d ${p(h)}:${p(m)}:${p(sec)}`:`${p(h)}:${p(m)}:${p(sec)}`;
+}
+
+function badge(d){
+  let b="";
+  if(d.aoe)b+=`<span class="b aoe">AoE · UTC−12</span>`;
+  b+=`<span class="b">${d.source==="rules"?"fast path":"llm"}</span>`;
+  if(d.tz_source==="date_only_default")b+=`<span class="b warn">assumed 23:59 AoE</span>`;
+  if(d.tz_source==="requester_tz_fallback")b+=`<span class="b warn">assumed your tz</span>`;
+  if(d.tz_source==="relative")b+=`<span class="b warn">relative</span>`;
+  return b;
+}
+
+function altLabel(basis){
+  return basis==="aoe"?"If it means AoE instead:":basis==="utc"?"If it means UTC instead:":"If your timezone's end-of-day:";
+}
+
+function render(data){
+  const res=$("#results");
+  res.innerHTML="";
+  timers.forEach(clearInterval);timers=[];
+  if(data.degraded){
+    const b=$("#banner");b.style.display="block";
+    b.textContent="LLM unavailable — deterministic fast-path only (relative/oddly-phrased dates may be missed).";
+  }else{$("#banner").style.display="none";}
+  const head=document.createElement("div");
+  head.className="nowline";
+  head.innerHTML=`Your timezone: ${esc(data.requester_tz)} · now: <span id="nownow"></span>`;
+  res.appendChild(head);
+  nowEl=$("#nownow");
+  if(!data.deadlines.length){
+    setStatus("No dates found in that text.");
+    return;
+  }
+  data.deadlines.forEach((d,i)=>{
+    const art=document.createElement("article");
+    art.className=`card dl${d.remaining.expired?" expired":""}`;
+    const lab=d.label?`<span class="lab">${esc(d.label)}</span>`:`<span class="lab" style="color:var(--muted)">${esc(d.kind.replace(/_/g," "))}</span>`;
+    let alts="";
+    if(d.alternates.length){
+      alts=`<div class="alts"><div class="title">Ambiguous phrasing — alternatives:</div>`+
+        d.alternates.map(a=>`<div class="alt">${altLabel(a.basis)} <b>${esc(a.human)}</b></div>`).join("")+`</div>`;
+    }
+    art.innerHTML=`
+      <div class="meta">${lab}<span class="kind">${esc(d.kind.replace(/_/g," "))}</span>${badge(d)}</div>
+      <div class="raw">“${esc(d.raw_text)}”</div>
+      <div class="local">${esc(d.local.human)}</div>
+      <div class="utc">${esc(d.deadline_utc.toISOString ? "" : "")}UTC: ${esc(fmtIso(d.deadline_utc))} · epoch ${d.epoch_seconds}</div>
+      <div class="count" id="cd-${i}">…</div>
+      ${d.note?`<div class="note">${esc(d.note)}</div>`:""}
+      ${alts}`;
+    res.appendChild(art);
+    const el=art.querySelector(`#cd-${i}`);
+    const tick=()=>{
+      const ms=d.epoch_seconds*1000-(Date.now()+skewMs);
+      if(ms>0){
+        el.className="count"+(ms<3600e3?" bad":ms<86400e3?" warn":"");
+        el.innerHTML=fmt(ms);
+      }else{
+        el.className="count expired";
+        el.innerHTML=`passed ${fmt(-ms)} <small>ago</small>`;
+      }
+    };
+    tick();
+    timers.push(setInterval(tick,250));
+  });
+}
+
+function fmtIso(s){
+  const d=new Date(s);
+  return d.toISOString().replace(".000","");
+}
+
+function tickNow(){
+  if(nowEl)nowEl.textContent=new Date(Date.now()+skewMs).toLocaleString();
+}
+
+async function parse(){
+  const text=$("#text").value.trim();
+  if(!text){setStatus("Paste some text containing a date first.");return;}
+  const sel=$("#tz").value;
+  const tz=sel==="auto"?browserTz:sel;
+  setStatus("Extracting deadlines…");
+  $("#go").disabled=true;
+  try{
+    const r=await fetch("/api/extract",{method:"POST",
+      headers:{"Content-Type":"application/json","X-Timezone":tz},
+      body:JSON.stringify({text,tz,fast:$("#fast").checked})});
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      setStatus(`Error ${r.status}: ${e.detail||r.statusText}`);
+      return;
+    }
+    const data=await r.json();
+    skewMs=Date.parse(data.now_utc)-Date.now();
+    render(data);
+    setStatus("");
+    $("#share").disabled=false;
+    const u=new URL(location);
+    u.searchParams.set("text",text);
+    u.searchParams.set("tz",sel);
+    history.replaceState(null,"",u);
+  }catch(err){setStatus("Request failed: "+err.message);}
+  finally{$("#go").disabled=false;}
+}
+
+$("#go").addEventListener("click",parse);
+$("#example").addEventListener("click",()=>{$("#text").value=EXAMPLE;parse();});
+$("#share").addEventListener("click",async()=>{
+  try{await navigator.clipboard.writeText(location.href);setStatus("Link copied to clipboard.");}
+  catch(e){setStatus("Copy failed — the URL bar already has the link.");}
+});
+$("#text").addEventListener("keydown",e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==="Enter")parse();
+});
+setInterval(tickNow,1000);
+
+(function fromUrl(){
+  const p=new URLSearchParams(location.search);
+  if(p.get("text")){
+    $("#text").value=p.get("text");
+    if(p.get("tz")){
+      const sel=$("#tz");
+      let found=false;
+      for(const o of sel.options)if(o.value===p.get("tz")){found=true;break;}
+      if(!found){
+        const o=document.createElement("option");
+        o.value=p.get("tz");o.textContent=p.get("tz");sel.appendChild(o);
+      }
+      sel.value=p.get("tz");
+    }
+    parse();
+  }
+})();
+</script>
+</body>
+</html>
