@@ -8,7 +8,7 @@ A tiny local LLM (Qwen2.5-1.5B-Instruct, ~1 GB GGUF) handles oddly-phrased dates
 a deterministic regex/dateparser fast path handles formulaic ones instantly and
 validates everything. All timezone, DST and leap-year math is done in Python —
 the model never does arithmetic.
-
+MAKE sure to create a models/ folder in the working dir
 ## Quick start (Docker)
 
 ```bash
@@ -22,11 +22,6 @@ GPU variant (needs `nvidia-container-toolkit`, ~10–25 min build) — **experim
 docker compose --profile gpu up -d --build
 ```
 
-> Experimental because llama-cpp-python 0.3.35's CUDA backend intermittently
-> aborts the process (a few requests in) on an RTX 3080 Ti — reproduced with
-> CUDA 12.4 and 13.3 toolchains, with and without grammar-constrained decoding.
-> The CPU image is 100% stable and is the default. Try the GPU profile again
-> after a future llama-cpp-python release.
 
 ## Performance
 
